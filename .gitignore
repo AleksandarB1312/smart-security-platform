@@ -7,3 +7,6 @@ venv/
 mosquitto-data/
 .idea/
 .vscode/
+devices/keys/
+gateway/devices.db
+.pytest_cache/

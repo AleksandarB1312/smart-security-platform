@@ -25,7 +25,8 @@ IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
 ## Status / roadmap
 
 - [x] **Faza 1** — Mosquitto broker + simulirani IoT uređaji koji publish-uju senzorske podatke
-- [ ] **Faza 2** — ZKP (Schnorr) autentikacija uređaja preko auth gateway-a
+- [x] **Faza 2** — ZKP (Schnorr) autentikacija uređaja preko auth gateway-a
+- [ ] **Faza 2.5** — Mosquitto sam validira token (trenutno gateway izdaje token, ali broker ga još ne proverava)
 - [ ] **Faza 3** — Anomaly detection (sumnjivi podaci + neuspeli auth pokušaji)
 - [ ] **Faza 4** — Live dashboard
 - [ ] **Faza 5** — Testiranje napada (spoofing, replay, DoS) i evaluacija
@@ -70,14 +71,46 @@ Provera da li poruke stižu (ako imaš `mosquitto-clients`):
 mosquitto_sub -h localhost -t "home/+/+" -v
 ```
 
+## Pokretanje (Faza 2 — ZKP autentikacija)
+
+Pokreni auth gateway (u zasebnom terminalu, ostavi da radi):
+
+```bash
+uvicorn gateway.main:app --reload --port 8000
+```
+
+Registruj uređaj (generiše par ključeva, javni ključ šalje gateway-u, privatni čuva lokalno u `devices/keys/`):
+
+```bash
+python -m devices.register_device --device-id sensor-temp-01
+```
+
+Pokreni "sigurnu" verziju simulatora — prvo se ZKP autentikuje, pa tek onda publish-uje na MQTT:
+
+```bash
+python -m devices.secure_device_simulator --device-id sensor-temp-01 --sensor-type temperature
+```
+
+**Napomena:** sve komande iz Faze 2 pokreći iz root foldera projekta (zbog `-m` oznake koja koristi Python pakete `crypto`, `gateway`, `devices`).
+
+Pokreni testove kriptografskog modula (uključujući dokaz da ponovljen nonce otkriva privatni ključ):
+
+```bash
+pytest tests/ -v
+```
+
+Swagger dokumentacija gateway-a (lepo za demonstraciju na odbrani): `http://localhost:8000/docs`
+
 ## Struktura projekta
 
 ```
 smart-home-security-platform/
-├── devices/         # simulacija IoT uređaja
-├── gateway/         # ZKP auth gateway (faza 2)
+├── crypto/          # Schnorr ZKP protokol (deli ga gateway i uređaji)
+├── devices/         # simulacija IoT uređaja + ZKP klijent
+├── gateway/         # auth gateway (FastAPI) + registar uređaja (SQLite)
 ├── broker/          # Mosquitto konfiguracija
 ├── dashboard/       # live dashboard (faza 4)
+├── tests/           # testovi kriptografskog modula
 ├── docs/            # dokumentacija, dijagrami, beleške za diplomski
 ├── docker-compose.yml
 └── requirements.txt
