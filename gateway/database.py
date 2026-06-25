@@ -21,6 +21,16 @@ def init_db():
         )
         """
     )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS auth_failures (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            device_id TEXT NOT NULL,
+            client_ip TEXT,
+            occurred_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
     connection.commit()
     connection.close()
 
@@ -48,6 +58,41 @@ def list_devices():
     connection = get_connection()
     rows = connection.execute(
         "SELECT device_id, registered_at FROM devices"
+    ).fetchall()
+    connection.close()
+    return [dict(row) for row in rows]
+
+
+def log_failed_attempt(device_id, client_ip):
+    connection = get_connection()
+    connection.execute(
+        "INSERT INTO auth_failures (device_id, client_ip) VALUES (?, ?)",
+        (device_id, client_ip),
+    )
+    connection.commit()
+    connection.close()
+
+
+def count_recent_failures(device_id, window_seconds):
+    connection = get_connection()
+    row = connection.execute(
+        """
+        SELECT COUNT(*) AS failure_count FROM auth_failures
+        WHERE device_id = ?
+        AND occurred_at >= datetime('now', ?)
+        """,
+        (device_id, f"-{window_seconds} seconds"),
+    ).fetchone()
+    connection.close()
+    return row["failure_count"]
+
+
+def list_recent_failures(limit=50):
+    connection = get_connection()
+    rows = connection.execute(
+        "SELECT device_id, client_ip, occurred_at FROM auth_failures "
+        "ORDER BY occurred_at DESC LIMIT ?",
+        (limit,),
     ).fetchall()
     connection.close()
     return [dict(row) for row in rows]

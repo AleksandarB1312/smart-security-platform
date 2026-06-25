@@ -2,15 +2,25 @@ import secrets
 import time
 
 import jwt
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
 from crypto.schnorr import verify_proof
-from gateway.database import get_device_public_key, init_db, list_devices, register_device
+from gateway.database import (
+    count_recent_failures,
+    get_device_public_key,
+    init_db,
+    list_devices,
+    list_recent_failures,
+    log_failed_attempt,
+    register_device,
+)
 
 SECRET_KEY = "dev-secret-change-in-production"
 TOKEN_TTL_SECONDS = 300
 SESSION_TTL_SECONDS = 30
+BRUTE_FORCE_THRESHOLD = 3
+BRUTE_FORCE_WINDOW_SECONDS = 60
 
 app = FastAPI(title="Smart Home Security Platform - Auth Gateway")
 pending_sessions = {}
@@ -61,7 +71,7 @@ def submit_commitment(payload: CommitmentRequest):
 
 
 @app.post("/auth/response")
-def submit_response(payload: ResponseRequest):
+def submit_response(payload: ResponseRequest, request: Request):
     session = pending_sessions.pop(payload.device_id, None)
     if session is None:
         raise HTTPException(status_code=400, detail="Nema aktivne auth sesije za ovaj uređaj")
@@ -77,6 +87,16 @@ def submit_response(payload: ResponseRequest):
     )
 
     if not is_valid:
+        client_ip = request.client.host if request.client else "unknown"
+        log_failed_attempt(payload.device_id, client_ip)
+
+        recent_failures = count_recent_failures(payload.device_id, BRUTE_FORCE_WINDOW_SECONDS)
+        if recent_failures >= BRUTE_FORCE_THRESHOLD:
+            print(
+                f"[UPOZORENJE] {payload.device_id} ima {recent_failures} neuspelih "
+                f"pokusaja u poslednjih {BRUTE_FORCE_WINDOW_SECONDS}s — moguc napad"
+            )
+
         raise HTTPException(status_code=401, detail="ZKP dokaz nije validan")
 
     token = jwt.encode(
@@ -85,3 +105,8 @@ def submit_response(payload: ResponseRequest):
         algorithm="HS256",
     )
     return {"token": token}
+
+
+@app.get("/security/failed-attempts")
+def failed_attempts():
+    return list_recent_failures()

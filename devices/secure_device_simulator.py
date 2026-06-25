@@ -1,19 +1,13 @@
 import argparse
 import json
-import random
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import paho.mqtt.client as mqtt
 
+from devices.sensors import SENSOR_RANGES, initial_value, next_value
 from devices.zkp_auth_client import authenticate
-
-SENSOR_RANGES = {
-    "temperature": (18.0, 26.0),
-    "humidity": (30.0, 60.0),
-    "motion": (0, 1),
-}
 
 KEYS_DIR = Path(__file__).parent / "keys"
 
@@ -30,18 +24,11 @@ def load_private_key(device_id):
     return data["private_key"]
 
 
-def generate_reading(sensor_type):
-    if sensor_type == "motion":
-        return random.choice([0, 1])
-    low, high = SENSOR_RANGES[sensor_type]
-    return round(random.uniform(low, high), 2)
-
-
-def build_payload(device_id, sensor_type):
+def build_payload(device_id, sensor_type, value):
     return json.dumps({
         "device_id": device_id,
         "sensor_type": sensor_type,
-        "value": generate_reading(sensor_type),
+        "value": value,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     })
 
@@ -52,10 +39,12 @@ def run(broker_host, broker_port, device_id, sensor_type, interval, token, max_m
     client.username_pw_set(device_id, token)
     client.connect(broker_host, broker_port)
 
+    value = initial_value(sensor_type)
     sent = 0
     try:
         while max_messages is None or sent < max_messages:
-            payload = build_payload(device_id, sensor_type)
+            value = next_value(sensor_type, value)
+            payload = build_payload(device_id, sensor_type, value)
             client.publish(topic, payload)
             print(f"[{device_id}] -> {topic}: {payload}")
             sent += 1
