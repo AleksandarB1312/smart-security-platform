@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<title>Smart Home Security — Live Monitor</title>
+<style>
+  :root {
+    --bg: #0B0D10;
+    --panel: #12151A;
+    --border: #1F242C;
+    --text: #E5E9EE;
+    --muted: #6B7785;
+    --ok: #2DD4A6;
+    --warn: #F0A93C;
+    --danger: #E5484D;
+    --font-display: ui-sans-serif, "Segoe UI", -apple-system, sans-serif;
+    --font-mono: "SF Mono", "JetBrains Mono", "Cascadia Code", Consolas, "Roboto Mono", monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-mono);
+    padding: 28px;
+  }
+
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 24px;
+  }
+
+  h1 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  h1 span { color: var(--muted); font-weight: 400; }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+    box-shadow: 0 0 0 0 rgba(45, 212, 166, 0.6);
+    animation: pulse 2s infinite;
+  }
+
+  .dot.offline { background: var(--danger); animation: none; }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(45, 212, 166, 0.5); }
+    70% { box-shadow: 0 0 0 6px rgba(45, 212, 166, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(45, 212, 166, 0); }
+  }
+
+  .section-label {
+    font-family: var(--font-display);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 12px;
+  }
+
+  .devices {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+    margin-bottom: 32px;
+  }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    transition: border-color 0.3s ease;
+  }
+
+  .card.flash { border-color: var(--ok); }
+
+  .card-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .device-id { font-size: 13px; font-weight: 600; }
+  .sensor-type { font-size: 10px; color: var(--muted); letter-spacing: 0.08em; }
+
+  .value-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .value { font-size: 28px; font-weight: 700; }
+  .unit { font-size: 13px; color: var(--muted); }
+
+  .sparkline { width: 100%; height: 36px; }
+  .sparkline polyline {
+    fill: none;
+    stroke: var(--ok);
+    stroke-width: 2;
+  }
+
+  .last-seen { font-size: 10px; color: var(--muted); margin-top: 8px; }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+  }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px;
+    max-height: 340px;
+    overflow-y: auto;
+  }
+
+  .feed-item {
+    border-left: 3px solid var(--warn);
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    background: rgba(240, 169, 60, 0.06);
+  }
+
+  .panel.security .feed-item {
+    border-left-color: var(--danger);
+    background: rgba(229, 72, 77, 0.06);
+  }
+
+  .feed-item .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+  .empty { color: var(--muted); font-size: 12px; padding: 8px 0; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Smart Home Security <span>/ live monitor</span></h1>
+  <div class="status"><span class="dot" id="connDot"></span><span id="connText">UŽIVO</span></div>
+</header>
+
+<div class="section-label">Uređaji</div>
+<div class="devices" id="devices"></div>
+
+<div class="panels">
+  <div class="panel">
+    <div class="section-label">Anomalije</div>
+    <div id="alerts"></div>
+  </div>
+  <div class="panel security">
+    <div class="section-label">Bezbednosni dnevnik (neuspeli auth pokušaji)</div>
+    <div id="security"></div>
+  </div>
+</div>
+
+<script>
+const UNITS = { temperature: "°C", humidity: "%", motion: "" };
+const LABELS = { temperature: "TEMPERATURA", humidity: "VLAŽNOST", motion: "POKRET" };
+const lastSeenByDevice = {};
+
+function timeAgo(timestamp) {
+  const seconds = Math.max(0, Math.round(Date.now() / 1000 - timestamp));
+  if (seconds < 60) return `pre ${seconds}s`;
+  return `pre ${Math.round(seconds / 60)}min`;
+}
+
+function buildSparkline(history) {
+  if (history.length < 2) return "";
+  const values = history.map(p => p.v);
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const range = max - min || 1;
+  const width = 200, height = 36;
+  const step = width / (values.length - 1);
+  const points = values.map((v, i) => {
+    const x = (i * step).toFixed(1);
+    const y = (height - ((v - min) / range) * height).toFixed(1);
+    return `${x},${y}`;
+  }).join(" ");
+  return `<svg class="sparkline" viewBox="0 0 ${width} ${height}" preserveAspectRatio="none"><polyline points="${points}" /></svg>`;
+}
+
+function renderDevices(devices) {
+  const container = document.getElementById("devices");
+  if (devices.length === 0) {
+    container.innerHTML = '<div class="empty">Nema podataka još — pokreni simulator uređaja.</div>';
+    return;
+  }
+
+  container.innerHTML = devices.map(device => {
+    const isFresh = device.last_seen !== lastSeenByDevice[device.device_id];
+    lastSeenByDevice[device.device_id] = device.last_seen;
+    const motionText = device.sensor_type === "motion"
+      ? (device.last_value ? "POKRET" : "MIRNO")
+      : device.last_value;
+
+    return `
+      <div class="card ${isFresh ? "flash" : ""}">
+        <div class="card-top">
+          <span class="device-id">${device.device_id}</span>
+          <span class="sensor-type">${LABELS[device.sensor_type] || device.sensor_type}</span>
+        </div>
+        <div class="value-row">
+          <span class="value">${motionText}</span>
+          <span class="unit">${UNITS[device.sensor_type] || ""}</span>
+        </div>
+        ${buildSparkline(device.history)}
+        <div class="last-seen">${timeAgo(device.last_seen)}</div>
+      </div>
+    `;
+  }).join("");
+}
+
+function renderAlerts(alerts) {
+  const container = document.getElementById("alerts");
+  if (alerts.length === 0) {
+    container.innerHTML = '<div class="empty">Nema anomalija.</div>';
+    return;
+  }
+  container.innerHTML = alerts.map(alert => `
+    <div class="feed-item">
+      <strong>${alert.device_id}</strong> (${alert.sensor_type}) — vrednost ${alert.value}
+      <div class="meta">${timeAgo(alert.time)}</div>
+    </div>
+  `).join("");
+}
+
+function renderSecurity(failures) {
+  const container = document.getElementById("security");
+  if (failures.length === 0) {
+    container.innerHTML = '<div class="empty">Nema neuspelih pokušaja.</div>';
+    return;
+  }
+  container.innerHTML = failures.map(failure => `
+    <div class="feed-item">
+      <strong>${failure.device_id}</strong> — neuspeo ZKP dokaz
+      <div class="meta">${failure.client_ip} · ${failure.occurred_at}</div>
+    </div>
+  `).join("");
+}
+
+async function poll() {
+  try {
+    const response = await fetch("/api/state");
+    const state = await response.json();
+    renderDevices(state.devices);
+    renderAlerts(state.alerts);
+    renderSecurity(state.security_failures);
+    document.getElementById("connDot").classList.remove("offline");
+    document.getElementById("connText").textContent = "UŽIVO";
+  } catch (error) {
+    document.getElementById("connDot").classList.add("offline");
+    document.getElementById("connText").textContent = "OFFLINE";
+  }
+}
+
+poll();
+setInterval(poll, 1500);
+</script>
+
+</body>
+</html>

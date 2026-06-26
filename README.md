@@ -28,7 +28,7 @@ IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
 - [x] **Faza 2** — ZKP (Schnorr) autentikacija uređaja preko auth gateway-a
 - [ ] **Faza 2.5** — Mosquitto sam validira token (trenutno gateway izdaje token, ali broker ga još ne proverava)
 - [x] **Faza 3** — Anomaly detection (sumnjivi podaci + neuspeli auth pokušaji)
-- [ ] **Faza 4** — Live dashboard
+- [x] **Faza 4** — Live dashboard
 - [ ] **Faza 5** — Testiranje napada (spoofing, replay, DoS) i evaluacija
 
 ## Tehnologije
@@ -40,7 +40,7 @@ IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
 | Auth gateway | FastAPI, SQLite |
 | MQTT broker | Eclipse Mosquitto |
 | Anomaly detection | scikit-learn (Isolation Forest) |
-| Dashboard | Flask + Chart.js |
+| Dashboard | Flask, vanilla JS + inline SVG (bez eksternih CDN zavisnosti) |
 | Infrastruktura | Docker Compose |
 
 ## Pokretanje (Faza 1)
@@ -137,6 +137,25 @@ Pokreni testove za kriptografiju i anomaly detection zajedno:
 pytest tests/ -v
 ```
 
+## Pokretanje (Faza 4 — Live Dashboard)
+
+Uz već pokrenut broker (i opcionalno gateway/monitor za pune podatke), pokreni dashboard u zasebnom terminalu:
+
+```bash
+python -m dashboard.app
+```
+
+Otvori u browseru: `http://localhost:5000`
+
+Dashboard prikazuje:
+- **Live kartice po uređaju** — trenutna vrednost + sparkline (poslednji 30 očitavanja), osvežava se svake 1.5s
+- **Anomalije** — feed upozorenja sa `alerts/+/+` MQTT teme (puni se kad `anomaly.live_monitor` radi)
+- **Bezbednosni dnevnik** — neuspeli ZKP auth pokušaji, povučeno direktno sa gateway-a (`/security/failed-attempts`)
+
+**Napomena o tehničkom izboru:** README je ranije predviđao Chart.js za grafove, ali sam umesto toga implementirao sparkline-ove direktno u SVG-u preko vanilla JS-a — dashboard je potpuno samostalan (radi i bez interneta, nema CDN zavisnosti), što je dobra osobina za bezbednosni alat. Ako želiš bogatije grafove kasnije, Chart.js se lako dodaje.
+
+Za potpunu demonstraciju uživo, pokreni paralelno (svaki u svom terminalu): broker, gateway, `anomaly.live_monitor`, `dashboard.app`, i jedan ili više simulatora uređaja — sve se vidi na jednom ekranu, idealno za odbranu.
+
 ## Struktura projekta
 
 ```
@@ -145,8 +164,8 @@ smart-home-security-platform/
 ├── devices/         # simulacija IoT uređaja, ZKP klijent, deljena sensors.py logika
 ├── gateway/         # auth gateway (FastAPI) + registar uređaja + auth_failures log (SQLite)
 ├── anomaly/         # Isolation Forest modeli, live monitor, attack simulator
+├── dashboard/       # Flask live dashboard (MQTT listener + JSON API + frontend)
 ├── broker/          # Mosquitto konfiguracija
-├── dashboard/       # live dashboard (faza 4)
 ├── tests/           # testovi kriptografskog i anomaly detection modula
 ├── docs/            # dokumentacija, dijagrami, beleške za diplomski
 ├── docker-compose.yml
