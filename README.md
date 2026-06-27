@@ -29,7 +29,7 @@ IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
 - [ ] **Faza 2.5** — Mosquitto sam validira token (trenutno gateway izdaje token, ali broker ga još ne proverava)
 - [x] **Faza 3** — Anomaly detection (sumnjivi podaci + neuspeli auth pokušaji)
 - [x] **Faza 4** — Live dashboard
-- [ ] **Faza 5** — Testiranje napada (spoofing, replay, DoS) i evaluacija
+- [x] **Faza 5** — Testiranje napada (spoofing, replay, DoS) i evaluacija
 
 ## Tehnologije
 
@@ -156,6 +156,41 @@ Dashboard prikazuje:
 
 Za potpunu demonstraciju uživo, pokreni paralelno (svaki u svom terminalu): broker, gateway, `anomaly.live_monitor`, `dashboard.app`, i jedan ili više simulatora uređaja — sve se vidi na jednom ekranu, idealno za odbranu.
 
+## Pokretanje (Faza 5 — Testiranje napada i evaluacija)
+
+Formalni, automatizovani testovi napada (spoofing, replay, brute-force) — koriste FastAPI TestClient, ne treba im pokrenut gateway ni broker:
+
+```bash
+pytest tests/test_gateway_attacks.py -v
+```
+
+Pokreni kompletnu evaluaciju (ZKP performanse, stopa lažnih pozitiva, osetljivost detekcije po veličini napada, otpornost na spoofing) — generiše `docs/rezultati_evaluacije.md` sa stvarnim, reproduktivnim brojevima za poglavlje "Rezultati":
+
+```bash
+python -m evaluation.run_evaluation
+```
+
+**Šta se tačno testira:**
+
+| Napad | Kako se testira | Gde |
+|---|---|---|
+| Spoofing (lažan privatni ključ) | 100 pokušaja sa nasumičnim ključem | `evaluation/run_evaluation.py` + `tests/test_gateway_attacks.py` |
+| Replay (presretnut odgovor) | Ponovno slanje starog response-a na nov challenge | `tests/test_gateway_attacks.py` |
+| Brute-force (više pokušaja zaredom) | 4+ neuspela pokušaja, provera da se loguju | `tests/test_gateway_attacks.py` |
+| Nonce reuse (loša implementacija) | Dokaz da se privatni ključ matematički izvlači | `tests/test_schnorr.py` |
+| Anomalni senzorski podaci | Skokovi različitih veličina (±1 do ±32) | `evaluation/run_evaluation.py` |
+
+**Napomena o metodologiji:** stopa lažnih pozitiva se mери na ODVOJENOM test skupu (drugačiji random seed od trening skupa) — bitno da se izbegne data leakage (testiranje modela na podacima koje je već "vidiо").
+
+## Poznata ograničenja i budući rad
+
+Iskreno dokumentovano (korisno za poglavlje "Ograničenja i budući rad" u diplomskom):
+
+- **Mosquitto broker ne validira token na transportnom nivou** (Faza 2.5, namerno preskočena) — gateway izdaje token samo nakon uspešnog ZKP dokaza, ali sam MQTT broker trenutno prima konekciju od bilo kog klijenta (`allow_anonymous true`). Anomaly detection sloj delimično nadoknađuje ovo (vidi tačku 4 evaluacije), ali prava "defense in depth" arhitektura bi zahtevala da i broker sam proверava token (npr. preko `password_file` ili dynamic security plugin-a).
+- **Sinhrona priroda ZKP autentikacije** — trenutni protokol je interaktivan (challenge/response u 2 HTTP poziva); produkcioni sistem bi mogao koristiti non-interactive varijantu (Fiat-Shamir heuristika) za manji network overhead.
+- **Token revokacija** — izdati JWT tokeni važe do isteka (5 min) bez mehanizma za prevremeno opozivanje (npr. ako se uređaj kasnije otkrije kao kompromitovan).
+- **Anomaly detection feature set** — koristi samo (vrednost, devijacija od rolling proseka); bogatiji feature set (sezonalnost, korelacija između senzora) bi mogao dalje smanjiti stopu lažnih pozitiva.
+
 ## Struktura projekta
 
 ```
@@ -165,9 +200,10 @@ smart-home-security-platform/
 ├── gateway/         # auth gateway (FastAPI) + registar uređaja + auth_failures log (SQLite)
 ├── anomaly/         # Isolation Forest modeli, live monitor, attack simulator
 ├── dashboard/       # Flask live dashboard (MQTT listener + JSON API + frontend)
+├── evaluation/      # evaluacija performansi i bezbednosti (Faza 5)
 ├── broker/          # Mosquitto konfiguracija
-├── tests/           # testovi kriptografskog i anomaly detection modula
-├── docs/            # dokumentacija, dijagrami, beleške za diplomski
+├── tests/           # testovi kriptografije, anomaly detection i napada na gateway
+├── docs/            # dokumentacija, dijagrami, rezultati_evaluacije.md
 ├── docker-compose.yml
 └── requirements.txt
 ```

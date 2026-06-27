@@ -11,8 +11,8 @@ MODELS_DIR = Path(__file__).parent / "models"
 RANDOM_SEED = 42
 
 
-def simulate_normal_readings(sensor_type, num_devices=10, readings_per_device=200):
-    random.seed(RANDOM_SEED)
+def simulate_normal_readings(sensor_type, num_devices=10, readings_per_device=200, seed=RANDOM_SEED):
+    random.seed(seed)
     features = []
 
     for device_index in range(num_devices):

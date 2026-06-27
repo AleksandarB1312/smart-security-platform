@@ -1,7 +1,8 @@
+import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent / "devices.db"
+DB_PATH = Path(os.environ.get("GATEWAY_DB_PATH", Path(__file__).parent / "devices.db"))
 
 
 def get_connection():
