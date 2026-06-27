@@ -8,10 +8,10 @@ Prosek od 1000 mernih ciklusa po operaciji, na 2048-bitnoj grupi:
 
 | Operacija | Prosek (ms) | Min (ms) | Max (ms) |
 |---|---|---|---|
-| Generisanje kljuceva | 23.540 | 22.853 | 30.810 |
-| Commitment | 23.509 | 22.874 | 30.602 |
-| Response | 0.002 | 0.001 | 0.010 |
-| Verifikacija | 24.022 | 23.443 | 29.349 |
+| Generisanje kljuceva | 23.293 | 22.761 | 31.161 |
+| Commitment | 23.290 | 22.767 | 31.797 |
+| Response | 0.002 | 0.001 | 0.031 |
+| Verifikacija | 23.787 | 23.281 | 28.695 |
 
 ## 2. Stopa laznih pozitiva (normalan saobracaj)
 
@@ -41,7 +41,7 @@ Po 50 pokusaja za svaku velicinu naglog skoka u odnosu na stabilnu prethodnu vre
 
 | Velicina naglog skoka | Stopa detekcije |
 |---|---|
-| ±1 | 78% |
+| ±1 | 74% |
 | ±2 | 100% |
 | ±4 | 100% |
 | ±8 | 100% |
