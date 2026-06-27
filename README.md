@@ -1,35 +1,31 @@
 # Smart Home Security Platform
 
-Simulacija IoT mreže pametnog doma sa autentikacijom uređaja zasnovanom na **Zero-Knowledge Proof (Schnorr)** protokolu, anomaly detection sistemom i live dashboard-om. Diplomski rad iz predmeta *Internet of Things*.
+Simulacija IoT mreže pametnog doma sa autentikacijom uređaja zasnovanom na Zero-Knowledge Proof (Schnorr) protokolu, ML detekcijom anomalija i live dashboard-om. Diplomski rad iz predmeta *Internet of Things*.
 
-## Zašto ovaj projekat
+## O projektu
 
-Klasična IoT autentikacija (lozinke, statički API ključevi) zahteva da uređaj otkrije svoju tajnu pri svakoj konekciji, što je rizično u slučaju presretanja saobraćaja. Ovaj projekat implementira **Schnorr zero-knowledge proof** protokol — uređaj dokazuje da poseduje privatni ključ bez da ga ikada pošalje preko mreže.
+Klasična IoT autentikacija (lozinke, statički API ključevi) zahteva da uređaj otkrije svoju tajnu pri svakoj konekciji, što je rizično u slučaju presretanja saobraćaja. Ovaj projekat implementira Schnorr zero-knowledge proof protokol: uređaj dokazuje da poseduje privatni ključ, a da ga nikad ne pošalje preko mreže. Pored autentikacije, sistem prati i senzorske podatke u realnom vremenu i detektuje sumnjivo ponašanje preko Isolation Forest modela.
 
 ## Arhitektura
 
-```
-IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
-                                                        |        |
-                                                  izdaje token    neuspeli pokusaj -> auth_failures log
-                                                        v
-                                                  MQTT broker (Mosquitto)
-                                                        |
-                                                        v
-                                          Anomaly detection (Isolation Forest)
-                                                        |
-                                                        v
-                                                   Dashboard (live)
+```mermaid
+flowchart LR
+    A[IoT uređaj] -- ZKP challenge/response --> B[Auth gateway]
+    B -- token --> C[MQTT broker]
+    B -. neuspešan pokušaj .-> F[(auth_failures log)]
+    C --> D[Anomaly detection]
+    D --> E[Dashboard]
 ```
 
-## Status / roadmap
+## Status
 
-- [x] **Faza 1** — Mosquitto broker + simulirani IoT uređaji koji publish-uju senzorske podatke
-- [x] **Faza 2** — ZKP (Schnorr) autentikacija uređaja preko auth gateway-a
-- [ ] **Faza 2.5** — Mosquitto sam validira token (trenutno gateway izdaje token, ali broker ga još ne proverava)
-- [x] **Faza 3** — Anomaly detection (sumnjivi podaci + neuspeli auth pokušaji)
-- [x] **Faza 4** — Live dashboard
-- [x] **Faza 5** — Testiranje napada (spoofing, replay, DoS) i evaluacija
+- [x] Faza 1: Mosquitto broker + simulirani IoT uređaji
+- [x] Faza 2: ZKP (Schnorr) autentikacija preko auth gateway-a
+- [x] Faza 3: Anomaly detection (senzorski podaci + neuspeli auth pokušaji)
+- [x] Faza 4: Live dashboard
+- [x] Faza 5: Testiranje napada i evaluacija
+
+Faza 2.5 (Mosquitto sam validira token na transportnom nivou) je bila deo originalnog plana, ali je svesno izostavljena iz obima rada. Razlog i detalji u sekciji "Poznata ograničenja".
 
 ## Tehnologije
 
@@ -40,156 +36,88 @@ IoT uređaj (prover) --ZKP challenge/response--> Auth gateway (verifier)
 | Auth gateway | FastAPI, SQLite |
 | MQTT broker | Eclipse Mosquitto |
 | Anomaly detection | scikit-learn (Isolation Forest) |
-| Dashboard | Flask, vanilla JS + inline SVG (bez eksternih CDN zavisnosti) |
+| Dashboard | Flask, vanilla JS + inline SVG, bez eksternih CDN zavisnosti |
 | Infrastruktura | Docker Compose |
 
-## Pokretanje (Faza 1)
+## Preduslovi
 
-Pokreni broker:
+- Python 3.10+
+- Docker i Docker Compose
+- (opcionalno) `mosquitto-clients` za ručnu proveru MQTT poruka preko terminala
 
-```bash
-docker compose up -d
-```
+## Pokretanje
 
-Instaliraj zavisnosti:
+Sve komande se pokreću iz root foldera projekta, sa `-m` oznakom (npr. `python -m devices.device_simulator`), zbog deljenih paketa koji se međusobno importuju.
 
 ```bash
 pip install -r requirements.txt
+docker compose up -d
 ```
 
-Pokreni jedan ili više simuliranih uređaja (svaki u svom terminalu):
+U zasebnim terminalima, redom:
 
 ```bash
-python -m devices.device_simulator --device-id sensor-temp-01 --sensor-type temperature
-python -m devices.device_simulator --device-id sensor-hum-01 --sensor-type humidity
-python -m devices.device_simulator --device-id sensor-motion-01 --sensor-type motion
-```
-
-**Napomena:** sve komande u ovom projektu se pokreću sa `-m` oznakom iz root foldera (npr. `python -m devices.device_simulator`, ne `python devices/device_simulator.py`) — to je neophodno zbog deljenih paketa (`crypto`, `devices`, `gateway`, `anomaly`) koji se međusobno importuju.
-
-Provera da li poruke stižu (ako imaš `mosquitto-clients`):
-
-```bash
-mosquitto_sub -h localhost -t "home/+/+" -v
-```
-
-## Pokretanje (Faza 2 — ZKP autentikacija)
-
-Pokreni auth gateway (u zasebnom terminalu, ostavi da radi):
-
-```bash
+# Auth gateway
 uvicorn gateway.main:app --reload --port 8000
-```
 
-Registruj uređaj (generiše par ključeva, javni ključ šalje gateway-u, privatni čuva lokalno u `devices/keys/`):
-
-```bash
-python -m devices.register_device --device-id sensor-temp-01
-```
-
-Pokreni "sigurnu" verziju simulatora — prvo se ZKP autentikuje, pa tek onda publish-uje na MQTT:
-
-```bash
-python -m devices.secure_device_simulator --device-id sensor-temp-01 --sensor-type temperature
-```
-
-**Napomena:** sve komande iz Faze 2 pokreći iz root foldera projekta (zbog `-m` oznake koja koristi Python pakete `crypto`, `gateway`, `devices`).
-
-Pokreni testove kriptografskog modula (uključujući dokaz da ponovljen nonce otkriva privatni ključ):
-
-```bash
-pytest tests/ -v
-```
-
-Swagger dokumentacija gateway-a (lepo za demonstraciju na odbrani): `http://localhost:8000/docs`
-
-Lista nedavnih neuspelih auth pokušaja (brute-force log): `http://localhost:8000/security/failed-attempts`
-
-## Pokretanje (Faza 3 — Anomaly Detection)
-
-Istrenirај modele (Isolation Forest, po jedan za temperaturu i vlažnost — `motion` je binaran i ne koristi ovaj pristup):
-
-```bash
-python -m anomaly.train_model
-```
-
-Pokreni live monitor (sluša sve `home/+/+` MQTT poruke, u zasebnom terminalu):
-
-```bash
+# Anomaly monitor (modeli su već istrenirani i uključeni u repo)
 python -m anomaly.live_monitor
-```
 
-U drugom terminalu, pokreni normalan saobraćaj (npr. Faza 1 ili Faza 2 simulator) — monitor treba da ispisuje `[OK]` za svaku poruku. Zatim simuliraj napad/kvar uređaja:
-
-```bash
-python -m anomaly.attack_simulator --device-id sensor-temp-01 --sensor-type temperature --value 85.0
-```
-
-Monitor treba da ispiše `[ANOMALIJA]` i objavi upozorenje na MQTT temu `alerts/<device_id>/<sensor_type>`.
-
-**Kako detekcija radi:** model ne gleda samo da li je vrednost u dozvoljenom opsegu — koristi i **devijaciju od rolling proseka** poslednjih 5 očitavanja tog uređaja. Zato hvata i suptilne anomalije (npr. nagli skok sa 22°C na 26°C — tehnički "u opsegu", ali nerealno brza promena), ne samo apsurdne vrednosti. Ovo je dokumentovano i testirano u `tests/test_anomaly.py`.
-
-**Bitna napomena o metodologiji:** model za "normalno" ponašanje trenira se na sintetičkim podacima generisanim istom `devices/sensors.py` logikom (random walk) koju koriste i sami simulatori uređaja — ovo je svesna odluka da bi distribucija trening podataka odgovarala stvarnom radu sistema (čest izvor problema u ML sistemima, poznat kao *train/serve skew* — vredna napomena za poglavlje o metodologiji u radu).
-
-Pokreni testove za kriptografiju i anomaly detection zajedno:
-
-```bash
-pytest tests/ -v
-```
-
-## Pokretanje (Faza 4 — Live Dashboard)
-
-Uz već pokrenut broker (i opcionalno gateway/monitor za pune podatke), pokreni dashboard u zasebnom terminalu:
-
-```bash
+# Dashboard
 python -m dashboard.app
 ```
 
-Otvori u browseru: `http://localhost:5000`
+Otvori `http://localhost:5000` u browseru.
 
-Dashboard prikazuje:
-- **Live kartice po uređaju** — trenutna vrednost + sparkline (poslednji 30 očitavanja), osvežava se svake 1.5s
-- **Anomalije** — feed upozorenja sa `alerts/+/+` MQTT teme (puni se kad `anomaly.live_monitor` radi)
-- **Bezbednosni dnevnik** — neuspeli ZKP auth pokušaji, povučeno direktno sa gateway-a (`/security/failed-attempts`)
-
-**Napomena o tehničkom izboru:** README je ranije predviđao Chart.js za grafove, ali sam umesto toga implementirao sparkline-ove direktno u SVG-u preko vanilla JS-a — dashboard je potpuno samostalan (radi i bez interneta, nema CDN zavisnosti), što je dobra osobina za bezbednosni alat. Ako želiš bogatije grafove kasnije, Chart.js se lako dodaje.
-
-Za potpunu demonstraciju uživo, pokreni paralelno (svaki u svom terminalu): broker, gateway, `anomaly.live_monitor`, `dashboard.app`, i jedan ili više simulatora uređaja — sve se vidi na jednom ekranu, idealno za odbranu.
-
-## Pokretanje (Faza 5 — Testiranje napada i evaluacija)
-
-Formalni, automatizovani testovi napada (spoofing, replay, brute-force) — koriste FastAPI TestClient, ne treba im pokrenut gateway ni broker:
+Registracija i pokretanje uređaja:
 
 ```bash
-pytest tests/test_gateway_attacks.py -v
+python -m devices.register_device --device-id sensor-temp-01
+python -m devices.secure_device_simulator --device-id sensor-temp-01 --sensor-type temperature
 ```
 
-Pokreni kompletnu evaluaciju (ZKP performanse, stopa lažnih pozitiva, osetljivost detekcije po veličini napada, otpornost na spoofing) — generiše `docs/rezultati_evaluacije.md` sa stvarnim, reproduktivnim brojevima za poglavlje "Rezultati":
+Za brzi test bez ZKP-a (samo MQTT, korisno za prvu proveru da broker radi):
+
+```bash
+python -m devices.device_simulator --device-id sensor-temp-01 --sensor-type temperature
+```
+
+Simulacija napada (treba da se vidi na dashboard-u i u logu monitora):
+
+```bash
+python -m anomaly.attack_simulator --device-id sensor-temp-01 --sensor-type temperature --value 90.0
+```
+
+## Testiranje i evaluacija
+
+```bash
+pytest tests/ -v
+```
+
+Pokreće 11 testova: kriptografski modul (`test_schnorr.py`), anomaly detection (`test_anomaly.py`) i napadi na gateway preko FastAPI TestClient-a (`test_gateway_attacks.py`).
 
 ```bash
 python -m evaluation.run_evaluation
 ```
 
-**Šta se tačno testira:**
+Generiše `docs/rezultati_evaluacije.md` sa stvarnim, reproduktivnim brojevima (ZKP performanse, stopa lažnih pozitiva, osetljivost detekcije, otpornost na spoofing).
 
 | Napad | Kako se testira | Gde |
 |---|---|---|
-| Spoofing (lažan privatni ključ) | 100 pokušaja sa nasumičnim ključem | `evaluation/run_evaluation.py` + `tests/test_gateway_attacks.py` |
-| Replay (presretnut odgovor) | Ponovno slanje starog response-a na nov challenge | `tests/test_gateway_attacks.py` |
-| Brute-force (više pokušaja zaredom) | 4+ neuspela pokušaja, provera da se loguju | `tests/test_gateway_attacks.py` |
-| Nonce reuse (loša implementacija) | Dokaz da se privatni ključ matematički izvlači | `tests/test_schnorr.py` |
+| Spoofing (lažan privatni ključ) | 100 pokušaja sa nasumičnim ključem | `evaluation/`, `tests/test_gateway_attacks.py` |
+| Replay (presretnut odgovor) | Stari response na nov challenge | `tests/test_gateway_attacks.py` |
+| Brute-force | 4+ neuspela pokušaja zaredom | `tests/test_gateway_attacks.py` |
+| Nonce reuse | Matematičko izvlačenje privatnog ključa | `tests/test_schnorr.py` |
 | Anomalni senzorski podaci | Skokovi različitih veličina (±1 do ±32) | `evaluation/run_evaluation.py` |
 
-**Napomena o metodologiji:** stopa lažnih pozitiva se mери na ODVOJENOM test skupu (drugačiji random seed od trening skupa) — bitno da se izbegne data leakage (testiranje modela na podacima koje je već "vidiо").
+Stopa lažnih pozitiva se meri na odvojenom test skupu (drugačiji random seed od trening skupa), da se izbegne data leakage.
 
 ## Poznata ograničenja i budući rad
 
-Iskreno dokumentovano (korisno za poglavlje "Ograničenja i budući rad" u diplomskom):
-
-- **Mosquitto broker ne validira token na transportnom nivou** (Faza 2.5, namerno preskočena) — gateway izdaje token samo nakon uspešnog ZKP dokaza, ali sam MQTT broker trenutno prima konekciju od bilo kog klijenta (`allow_anonymous true`). Anomaly detection sloj delimično nadoknađuje ovo (vidi tačku 4 evaluacije), ali prava "defense in depth" arhitektura bi zahtevala da i broker sam proверava token (npr. preko `password_file` ili dynamic security plugin-a).
-- **Sinhrona priroda ZKP autentikacije** — trenutni protokol je interaktivan (challenge/response u 2 HTTP poziva); produkcioni sistem bi mogao koristiti non-interactive varijantu (Fiat-Shamir heuristika) za manji network overhead.
-- **Token revokacija** — izdati JWT tokeni važe do isteka (5 min) bez mehanizma za prevremeno opozivanje (npr. ako se uređaj kasnije otkrije kao kompromitovan).
-- **Anomaly detection feature set** — koristi samo (vrednost, devijacija od rolling proseka); bogatiji feature set (sezonalnost, korelacija između senzora) bi mogao dalje smanjiti stopu lažnih pozitiva.
+- Mosquitto broker trenutno ne validira token na transportnom nivou (`allow_anonymous true`). Gateway izdaje token samo nakon uspešnog ZKP dokaza, ali bi prava defense-in-depth arhitektura zahtevala da i sam broker proverava token, npr. preko `password_file` ili dynamic security plugin-a.
+- ZKP protokol je interaktivan (challenge/response u dva HTTP poziva). Non-interactive varijanta preko Fiat-Shamir heuristike bi smanjila network overhead.
+- Izdati JWT tokeni važe do isteka (5 min), bez mehanizma za prevremeno opozivanje kompromitovanog uređaja.
+- Anomaly detection koristi samo dva feature-a (vrednost i devijaciju od rolling medijane). Bogatiji feature set, npr. sezonalnost ili korelacija između senzora, bi dalje smanjio stopu lažnih pozitiva.
 
 ## Struktura projekta
 
@@ -200,17 +128,17 @@ smart-home-security-platform/
 ├── gateway/         # auth gateway (FastAPI) + registar uređaja + auth_failures log (SQLite)
 ├── anomaly/         # Isolation Forest modeli, live monitor, attack simulator
 ├── dashboard/       # Flask live dashboard (MQTT listener + JSON API + frontend)
-├── evaluation/      # evaluacija performansi i bezbednosti (Faza 5)
+├── evaluation/      # evaluacija performansi i bezbednosti
 ├── broker/          # Mosquitto konfiguracija
 ├── tests/           # testovi kriptografije, anomaly detection i napada na gateway
-├── docs/            # dokumentacija, dijagrami, rezultati_evaluacije.md
+├── docs/            # dokumentacija, rezultati_evaluacije.md
 ├── docker-compose.yml
 └── requirements.txt
 ```
 
-## Literatura (ZKP za IoT autentikaciju)
+## Literatura
 
-- *Lightweight zero-knowledge authentication scheme for IoT embedded devices (LZIA)*
-- *TinyZKP: Non-interactive zero knowledge proofs for IoT device authentication*
-- *BANZKP: lightweight authentication scheme for body area networks*
-- *SEAS: Secure and Efficient Authentication Scheme for Large-Scale IoT Devices Based on Zero-Knowledge Proof*
+- Lightweight zero-knowledge authentication scheme for IoT embedded devices (LZIA)
+- TinyZKP: Non-interactive zero knowledge proofs for IoT device authentication
+- BANZKP: lightweight authentication scheme for body area networks
+- SEAS: Secure and Efficient Authentication Scheme for Large-Scale IoT Devices Based on Zero-Knowledge Proof
